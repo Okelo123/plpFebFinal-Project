@@ -2145,46 +2145,49 @@
             });
 
             // Send message function
-            function sendMessage() {
-                const message = chatInput.value.trim();
-                if(message) {
-                    // Add user message
-                    const userMessage = document.createElement('div');
-                    userMessage.className = 'message user-message';
-                    userMessage.innerHTML = `<strong>You:</strong> ${message}`;
-                    chatMessages.appendChild(userMessage);
-                    
-                    // Clear input
-                    chatInput.value = '';
-                    
-                    // Scroll to bottom
-                    chatMessages.scrollTop = chatMessages.scrollHeight;
-                    
-                    // Simulate AI response
-                    setTimeout(() => {
-                        const responses = [
-                            "Based on the symptoms you described, I recommend checking the patient's blood pressure and heart rate.",
-                            "The symptoms could indicate a respiratory issue. Consider ordering a chest X-ray.",
-                            "For these symptoms, I suggest starting with a complete blood count test.",
-                            "The pattern matches common seasonal allergies. Recommend antihistamines and observation.",
-                            "These symptoms combined with the patient's history might indicate a need for cardiac evaluation."
-                        ];
-                        
-                        const aiMessage = document.createElement('div');
-                        aiMessage.className = 'message bot-message';
-                        aiMessage.innerHTML = `<strong>HealthBot:</strong> ${responses[Math.floor(Math.random() * responses.length)]}`;
-                        chatMessages.appendChild(aiMessage);
-                        
-                        // Scroll to bottom
-                        chatMessages.scrollTop = chatMessages.scrollHeight;
-                    }, 1000);
-                }
-            }
+           function sendMessage() {
+        const message = chatInput.value.trim();
+        if (!message) return;
 
-            // Send message on Enter
-            chatInput.addEventListener('keypress', (e) => {
-                if(e.key === 'Enter') sendMessage();
-            });
+        // Show user's message
+        const userMessage = document.createElement('div');
+        userMessage.className = 'message user-message';
+        userMessage.innerHTML = `<strong>You:</strong> ${message}`;
+        chatMessages.appendChild(userMessage);
+        chatInput.value = '';
+        chatMessages.scrollTop = chatMessages.scrollHeight;
+
+        // Send message to Flask backend
+        fetch('/chatbot', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ message: message })
+        })
+        .then(response => response.json())
+        .then(data => {
+            const aiMessage = document.createElement('div');
+            aiMessage.className = 'message bot-message';
+            aiMessage.innerHTML = `<strong>HealthBot:</strong> ${data.reply}`;
+            chatMessages.appendChild(aiMessage);
+            chatMessages.scrollTop = chatMessages.scrollHeight;
+        })
+        .catch(error => {
+            console.error('Error:', error);
+            const errorMessage = document.createElement('div');
+            errorMessage.className = 'message bot-message';
+            errorMessage.innerHTML = `<strong>HealthBot:</strong> Sorry, I couldn't process your request.`;
+            chatMessages.appendChild(errorMessage);
+        });
+    }
+
+    // Send on Enter key
+    chatInput.addEventListener('keypress', (e) => {
+        if (e.key === 'Enter') {
+            sendMessage();
+        }
+    });
 
             // Speech Recognition
             let recognition;

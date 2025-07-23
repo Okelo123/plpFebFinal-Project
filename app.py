@@ -14,14 +14,22 @@ import cv2
 import tensorflow as tf
 from tensorflow.keras.models import load_model
 from tensorflow.keras.preprocessing.image import img_to_array
+from flask_wtf.csrf import CSRFProtect
 import speech_recognition as sr
 import requests
 import pandas as pd
 from sklearn.ensemble import IsolationForest
 from sklearn.preprocessing import StandardScaler
+from dotenv import load_dotenv
 import joblib
 import heartpy as hp
 import pywt
+import google.generativeai as genai
+
+load_dotenv()
+# csrf = CSRFProtect(app)
+
+
 
 # Initialize Flask app
 app = Flask(__name__)
@@ -33,6 +41,11 @@ app.config['MODEL_FOLDER'] = 'models'
 
 # Set your OpenAI API key
 openai.api_key = 'your_openai_api_key_here'
+gemini_api = os.getenv("GEMINI_API_KEY")
+gemini = genai.GenerativeModel('gemini-pro')
+
+
+genai.configure(api_key=gemini_api)
 
 # Initialize extensions
 db = SQLAlchemy(app)
@@ -765,50 +778,113 @@ def sync_wearable_data():
 # =============================================
 # Enhanced Chatbot with Health Context
 # =============================================
+# @app.route('/chatbot', methods=['POST'])
+# @login_required
+# def chatbot():
+#     data = request.get_json()
+#     message = data['message']
+    
+#     # Get user health data for context
+#     user = User.query.get(session['user_id'])
+#     health_data = HealthData.query.filter_by(user_id=user.id).order_by(HealthData.timestamp.desc()).first()
+#     trends = health_analyzer.analyze_health_trends(user.id)
+    
+#     # Create health context for the AI
+#     health_context = f"Patient profile: {user.age} year old {user.gender}, {user.height}cm, {user.weight}kg. "
+    
+#     if health_data:
+#         health_context += f"""
+#         Latest health metrics:
+#         - Heart rate: {health_data.heart_rate} bpm
+#         - SpO2: {health_data.spO2}%
+#         - Stress level: {health_data.stress_level}/10
+#         - Last emotion: {health_data.emotion or 'N/A'}
+#         - Health state: {health_data.health_state or 'N/A'}
+#         """
+    
+#     if trends:
+#         health_context += "\nHealth trends:\n"
+#         for trend, value in trends.items():
+#             if trend != 'critical_changes':
+#                 health_context += f"- {trend.replace('_', ' ')}: {value:.2f}\n"
+        
+#         if trends.get('critical_changes'):
+#             health_context += "\nCritical changes detected:\n"
+#             for change in trends['critical_changes']:
+#                 health_context += f"- {change}\n"
+    
+#     # Create prompt for OpenAI
+#     prompt = f"""
+#     You are HealthBot, an AI health assistant. 
+#     Provide helpful, professional advice based on the user's health data.
+    
+#     {health_context}
+    
+#     User question: {message}
+    
+#     Response should be:
+#     - Concise and medically accurate
+#     - Focused on actionable advice
+#     - Include specific recommendations when appropriate
+#     - Highlight any concerning trends
+#     - Use simple language avoiding medical jargon
+#     - Reference the user's current health state if relevant
+#     """
+    
+#     try:
+#         # Call OpenAI API
+#         response = openai.ChatCompletion.create(
+#             model="gpt-4",
+#             messages=[
+#                 {"role": "system", "content": "You are a helpful health assistant."},
+#                 {"role": "user", "content": prompt}
+#             ],
+#             max_tokens=300
+#         )
+        
+#         reply = response.choices[0].message['content'].strip()
+#         return jsonify({'reply': reply})
+    
+#     except Exception as e:
+#         print(f"Error with OpenAI API: {str(e)}")
+#         return jsonify({'reply': "I'm having trouble connecting to the health database. Please try again later."})
+
+
+#3333333333333333333333########################################################################
+
 @app.route('/chatbot', methods=['POST'])
 @login_required
 def chatbot():
     data = request.get_json()
-    message = data['message']
-    
-    # Get user health data for context
-    user = User.query.get(session['user_id'])
-    health_data = HealthData.query.filter_by(user_id=user.id).order_by(HealthData.timestamp.desc()).first()
-    trends = health_analyzer.analyze_health_trends(user.id)
-    
-    # Create health context for the AI
-    health_context = f"Patient profile: {user.age} year old {user.gender}, {user.height}cm, {user.weight}kg. "
-    
-    if health_data:
-        health_context += f"""
-        Latest health metrics:
-        - Heart rate: {health_data.heart_rate} bpm
-        - SpO2: {health_data.spO2}%
-        - Stress level: {health_data.stress_level}/10
-        - Last emotion: {health_data.emotion or 'N/A'}
-        - Health state: {health_data.health_state or 'N/A'}
-        """
-    
-    if trends:
-        health_context += "\nHealth trends:\n"
-        for trend, value in trends.items():
-            if trend != 'critical_changes':
-                health_context += f"- {trend.replace('_', ' ')}: {value:.2f}\n"
-        
-        if trends.get('critical_changes'):
-            health_context += "\nCritical changes detected:\n"
-            for change in trends['critical_changes']:
-                health_context += f"- {change}\n"
-    
-    # Create prompt for OpenAI
+    message = data.get('message')
+
+    # Simulate getting user and health data
+    user = {
+        "age": 28,
+        "gender": "male",
+        "height": 175,
+        "weight": 70
+    }
+
+    health_context = f"""
+    Patient profile: {user['age']} year old {user['gender']}, {user['height']}cm, {user['weight']}kg.
+    Latest health metrics:
+    - Heart rate: 78 bpm
+    - SpO2: 96%
+    - Stress level: 3/10
+    - Last emotion: calm
+    - Health state: stable
+    """
+
+    # Prompt to send to Gemini
     prompt = f"""
-    You are HealthBot, an AI health assistant. 
+    You are HealthBot, an AI health assistant.
     Provide helpful, professional advice based on the user's health data.
-    
+
     {health_context}
-    
+
     User question: {message}
-    
+
     Response should be:
     - Concise and medically accurate
     - Focused on actionable advice
@@ -817,25 +893,18 @@ def chatbot():
     - Use simple language avoiding medical jargon
     - Reference the user's current health state if relevant
     """
-    
-    try:
-        # Call OpenAI API
-        response = openai.ChatCompletion.create(
-            model="gpt-4",
-            messages=[
-                {"role": "system", "content": "You are a helpful health assistant."},
-                {"role": "user", "content": prompt}
-            ],
-            max_tokens=300
-        )
-        
-        reply = response.choices[0].message['content'].strip()
-        return jsonify({'reply': reply})
-    
-    except Exception as e:
-        print(f"Error with OpenAI API: {str(e)}")
-        return jsonify({'reply': "I'm having trouble connecting to the health database. Please try again later."})
 
+    try:
+        response = gemini.generate_content(prompt)
+        reply = response.text.strip()
+        return jsonify({'reply': reply})
+
+    except Exception as e:
+        print(f"Error with Gemini API: {str(e)}")
+        return jsonify({'reply': "Sorry, I'm having trouble responding. Please try again later."})
+
+        
+###########################################################################################################
 # =============================================
 # Speech Recognition Route
 # =============================================
