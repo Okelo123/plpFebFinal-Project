@@ -1,4 +1,4 @@
-# app.py - Enhanced Health Monitor Backend with Prediction Model
+# app.py - Enhanced Health Monitor Backend with Gemini API Integration
 from flask import Flask, render_template, request, redirect, url_for, session, jsonify, send_from_directory
 from flask_sqlalchemy import SQLAlchemy
 from flask_bcrypt import Bcrypt
@@ -7,14 +7,12 @@ from datetime import datetime, timedelta
 import random
 import json
 import os
-import openai
 import base64
 import numpy as np
 import cv2
 import tensorflow as tf
 from tensorflow.keras.models import load_model
 from tensorflow.keras.preprocessing.image import img_to_array
-from flask_wtf.csrf import CSRFProtect
 import speech_recognition as sr
 import requests
 import pandas as pd
@@ -23,13 +21,9 @@ from sklearn.preprocessing import StandardScaler
 from dotenv import load_dotenv
 import joblib
 import heartpy as hp
-import pywt
 import google.generativeai as genai
 
 load_dotenv()
-# csrf = CSRFProtect(app)
-
-
 
 # Initialize Flask app
 app = Flask(__name__)
@@ -39,13 +33,19 @@ app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 app.config['UPLOAD_FOLDER'] = 'static/uploads'
 app.config['MODEL_FOLDER'] = 'models'
 
-# Set your OpenAI API key
-openai.api_key = 'your_openai_api_key_here'
+# Initialize Gemini
 gemini_api = os.getenv("GEMINI_API_KEY")
-gemini = genai.GenerativeModel('gemini-pro')
-
-
-genai.configure(api_key=gemini_api)
+if gemini_api:
+    try:
+        genai.configure(api_key=gemini_api)
+        gemini = genai.GenerativeModel('gemini-pro')
+        print("Gemini API initialized successfully")
+    except Exception as e:
+        print(f"Error initializing Gemini: {str(e)}")
+        gemini = None
+else:
+    print("GEMINI_API_KEY not found in environment")
+    gemini = None
 
 # Initialize extensions
 db = SQLAlchemy(app)
@@ -776,135 +776,89 @@ def sync_wearable_data():
         return jsonify({'error': 'Failed to sync data'}), 500
 
 # =============================================
-# Enhanced Chatbot with Health Context
+# Enhanced Chatbot with Gemini API Integration
 # =============================================
-# @app.route('/chatbot', methods=['POST'])
-# @login_required
-# def chatbot():
-#     data = request.get_json()
-#     message = data['message']
-    
-#     # Get user health data for context
-#     user = User.query.get(session['user_id'])
-#     health_data = HealthData.query.filter_by(user_id=user.id).order_by(HealthData.timestamp.desc()).first()
-#     trends = health_analyzer.analyze_health_trends(user.id)
-    
-#     # Create health context for the AI
-#     health_context = f"Patient profile: {user.age} year old {user.gender}, {user.height}cm, {user.weight}kg. "
-    
-#     if health_data:
-#         health_context += f"""
-#         Latest health metrics:
-#         - Heart rate: {health_data.heart_rate} bpm
-#         - SpO2: {health_data.spO2}%
-#         - Stress level: {health_data.stress_level}/10
-#         - Last emotion: {health_data.emotion or 'N/A'}
-#         - Health state: {health_data.health_state or 'N/A'}
-#         """
-    
-#     if trends:
-#         health_context += "\nHealth trends:\n"
-#         for trend, value in trends.items():
-#             if trend != 'critical_changes':
-#                 health_context += f"- {trend.replace('_', ' ')}: {value:.2f}\n"
-        
-#         if trends.get('critical_changes'):
-#             health_context += "\nCritical changes detected:\n"
-#             for change in trends['critical_changes']:
-#                 health_context += f"- {change}\n"
-    
-#     # Create prompt for OpenAI
-#     prompt = f"""
-#     You are HealthBot, an AI health assistant. 
-#     Provide helpful, professional advice based on the user's health data.
-    
-#     {health_context}
-    
-#     User question: {message}
-    
-#     Response should be:
-#     - Concise and medically accurate
-#     - Focused on actionable advice
-#     - Include specific recommendations when appropriate
-#     - Highlight any concerning trends
-#     - Use simple language avoiding medical jargon
-#     - Reference the user's current health state if relevant
-#     """
-    
-#     try:
-#         # Call OpenAI API
-#         response = openai.ChatCompletion.create(
-#             model="gpt-4",
-#             messages=[
-#                 {"role": "system", "content": "You are a helpful health assistant."},
-#                 {"role": "user", "content": prompt}
-#             ],
-#             max_tokens=300
-#         )
-        
-#         reply = response.choices[0].message['content'].strip()
-#         return jsonify({'reply': reply})
-    
-#     except Exception as e:
-#         print(f"Error with OpenAI API: {str(e)}")
-#         return jsonify({'reply': "I'm having trouble connecting to the health database. Please try again later."})
-
-
-#3333333333333333333333########################################################################
-
 @app.route('/chatbot', methods=['POST'])
 @login_required
 def chatbot():
     data = request.get_json()
     message = data.get('message')
-
-    # Simulate getting user and health data
-    user = {
-        "age": 28,
-        "gender": "male",
-        "height": 175,
-        "weight": 70
-    }
-
-    health_context = f"""
-    Patient profile: {user['age']} year old {user['gender']}, {user['height']}cm, {user['weight']}kg.
-    Latest health metrics:
-    - Heart rate: 78 bpm
-    - SpO2: 96%
-    - Stress level: 3/10
-    - Last emotion: calm
-    - Health state: stable
-    """
-
-    # Prompt to send to Gemini
+    
+    if not message or not message.strip():
+        return jsonify({'reply': "Please provide a message to chat."})
+    
+    # Get user health data for context
+    user = User.query.get(session['user_id'])
+    
+    # Initialize health context
+    health_context = "Patient profile: "
+    
+    if user:
+        # Basic user info
+        if user.age: health_context += f"{user.age} year old "
+        if user.gender: health_context += f"{user.gender}, "
+        if user.height: health_context += f"{user.height}cm, "
+        if user.weight: health_context += f"{user.weight}kg. "
+        
+        # Get latest health data
+        health_data = HealthData.query.filter_by(user_id=user.id).order_by(HealthData.timestamp.desc()).first()
+        if health_data:
+            health_context += "\n\nLatest health metrics:"
+            if health_data.heart_rate is not None: 
+                health_context += f"\n- Heart rate: {health_data.heart_rate} bpm"
+            if health_data.spO2 is not None: 
+                health_context += f"\n- SpO2: {health_data.spO2}%"
+            if health_data.stress_level is not None: 
+                health_context += f"\n- Stress level: {health_data.stress_level}/10"
+            if health_data.emotion: 
+                health_context += f"\n- Last emotion: {health_data.emotion}"
+            if health_data.health_state: 
+                health_context += f"\n- Health state: {health_data.health_state}"
+    
+    # If we don't have any context, use a fallback
+    if health_context == "Patient profile: ":
+        health_context = "No health data available. The user is asking a general health question."
+    
+    # Create prompt for Gemini
     prompt = f"""
-    You are HealthBot, an AI health assistant.
+    You are HealthBot, an AI health assistant. 
     Provide helpful, professional advice based on the user's health data.
-
+    
     {health_context}
-
+    
     User question: {message}
-
-    Response should be:
-    - Concise and medically accurate
-    - Focused on actionable advice
+    
+    Response guidelines:
+    - Be concise and medically accurate
+    - Focus on actionable advice
     - Include specific recommendations when appropriate
-    - Highlight any concerning trends
     - Use simple language avoiding medical jargon
-    - Reference the user's current health state if relevant
+    - Be empathetic and supportive
+    - If the question is not health-related, politely explain you can only answer health questions
     """
-
+    
+    print(f"Chatbot prompt:\n{prompt}")
+    
+    if not gemini:
+        return jsonify({'reply': "Health assistant is currently unavailable. Please try again later."})
+    
     try:
+        # Call Gemini API
         response = gemini.generate_content(prompt)
-        reply = response.text.strip()
-        return jsonify({'reply': reply})
-
+        
+        # Ensure we have valid text response
+        if response.text and response.text.strip():
+            reply = response.text.strip()
+            return jsonify({'reply': reply})
+        else:
+            print("Gemini returned empty response")
+            return jsonify({'reply': "I didn't get a response. Please try again."})
+    
     except Exception as e:
         print(f"Error with Gemini API: {str(e)}")
-        return jsonify({'reply': "Sorry, I'm having trouble responding. Please try again later."})
+        # Return a helpful message instead of an error
+        return jsonify({'reply': "I'm having trouble connecting to the health assistant service. Please try again later."})
 
-        
-###########################################################################################################
 # =============================================
 # Speech Recognition Route
 # =============================================

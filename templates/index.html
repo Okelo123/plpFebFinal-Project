@@ -942,6 +942,24 @@
             flex-direction: column;
             gap: 15px;
         }
+        .send-btn {
+    width: 45px;
+    height: 45px;
+    border-radius: 50%;
+    background: var(--primary);
+    color: white;
+    border: none;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: background 0.3s;
+    margin-left: 10px;
+}
+
+.send-btn:hover {
+    background: var(--secondary);
+}
 
         .message {
             max-width: 80%;
@@ -1821,11 +1839,14 @@
                 </div>
                 
                 <div class="chat-input-container">
-                    <input type="text" class="chat-input" id="chat-input" placeholder="Ask a health question...">
-                    <button class="mic-btn" id="mic-btn">
-                        <i class="fas fa-microphone"></i>
-                    </button>
-                </div>
+    <input type="text" class="chat-input" id="chat-input" placeholder="Ask a health question...">
+    <button class="mic-btn" id="mic-btn">
+        <i class="fas fa-microphone"></i>
+    </button>
+    <button class="send-btn" id="send-btn">
+        <i class="fas fa-paper-plane"></i>
+    </button>
+</div>
             </div>
         </div>
     </div>
@@ -2144,50 +2165,62 @@
                 chatContainer.classList.remove('active');
             });
 
-            // Send message function
-           function sendMessage() {
-        const message = chatInput.value.trim();
-        if (!message) return;
+          // Updated sendMessage function
+function sendMessage() {
+    const message = chatInput.value.trim();
+    document.getElementById('send-btn').addEventListener('click', sendMessage);
+    if (!message) return;
 
-        // Show user's message
-        const userMessage = document.createElement('div');
-        userMessage.className = 'message user-message';
-        userMessage.innerHTML = `<strong>You:</strong> ${message}`;
-        chatMessages.appendChild(userMessage);
-        chatInput.value = '';
-        chatMessages.scrollTop = chatMessages.scrollHeight;
+    // Show user's message
+    const userMessage = document.createElement('div');
+    userMessage.className = 'message user-message';
+    userMessage.innerHTML = `<strong>You:</strong> ${message}`;
+    chatMessages.appendChild(userMessage);
+    chatInput.value = '';
+    chatMessages.scrollTop = chatMessages.scrollHeight;
 
-        // Send message to Flask backend
-        fetch('/chatbot', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({ message: message })
-        })
-        .then(response => response.json())
-        .then(data => {
+    // Send message to Flask backend
+    fetch('/chatbot', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ message: message })
+    })
+    .then(response => {
+        if (response.status === 401) {
+            // Session expired - redirect to login
+            window.location.href = '/login';
+            return;
+        }
+        return response.json();
+    })
+    .then(data => {
+        if (data && data.reply) {
             const aiMessage = document.createElement('div');
             aiMessage.className = 'message bot-message';
             aiMessage.innerHTML = `<strong>HealthBot:</strong> ${data.reply}`;
             chatMessages.appendChild(aiMessage);
             chatMessages.scrollTop = chatMessages.scrollHeight;
-        })
-        .catch(error => {
-            console.error('Error:', error);
-            const errorMessage = document.createElement('div');
-            errorMessage.className = 'message bot-message';
-            errorMessage.innerHTML = `<strong>HealthBot:</strong> Sorry, I couldn't process your request.`;
-            chatMessages.appendChild(errorMessage);
-        });
-    }
-
-    // Send on Enter key
-    chatInput.addEventListener('keypress', (e) => {
-        if (e.key === 'Enter') {
-            sendMessage();
+        } else {
+            throw new Error('Invalid response from server');
         }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        const errorMessage = document.createElement('div');
+        errorMessage.className = 'message bot-message';
+        errorMessage.innerHTML = `<strong>HealthBot:</strong> Sorry, I couldn't process your request.`;
+        chatMessages.appendChild(errorMessage);
     });
+}
+
+// Add this event listener at the bottom of your script
+document.getElementById('chat-input').addEventListener('keypress', function(e) {
+    if (e.key === 'Enter') {
+        sendMessage();
+    }
+});
 
             // Speech Recognition
             let recognition;
